@@ -1,0 +1,84 @@
+import { useEditor } from '@/store/editorStore';
+import { BLEND_MODES } from '@/core/types';
+
+/**
+ * Options bar: tool-specific controls displayed under the menu bar.
+ * Photoshop's contextual options strip equivalent.
+ */
+export function OptionsBar() {
+  const tool = useEditor((s) => s.tool);
+  const brush = useEditor((s) => s.brush);
+  const eraser = useEditor((s) => s.eraser);
+  const setBrush = useEditor((s) => s.setBrush);
+  const setEraser = useEditor((s) => s.setEraser);
+  const fillTolerance = useEditor((s) => s.fillTolerance);
+  const fillContiguous = useEditor((s) => s.fillContiguous);
+  const setFill = useEditor((s) => s.setFillSettings);
+
+  return (
+    <div className="h-9 bg-ps-panel2 border-b border-ps-border px-3 flex items-center gap-3 text-xs">
+      {(tool === 'brush' || tool === 'eraser') && (
+        <>
+          <Numeric label="Size" value={tool === 'brush' ? brush.radius : eraser.radius} min={1} max={1024} step={1}
+            onChange={(v) => tool === 'brush' ? setBrush({ radius: v }) : setEraser({ radius: v })} />
+          <Numeric label="Hardness" value={(tool === 'brush' ? brush.hardness : eraser.hardness) * 100} min={0} max={100} step={1} suffix="%"
+            onChange={(v) => tool === 'brush' ? setBrush({ hardness: v / 100 }) : setEraser({ hardness: v / 100 })} />
+          <Numeric label="Opacity" value={(tool === 'brush' ? brush.opacity : eraser.opacity) * 100} min={0} max={100} step={1} suffix="%"
+            onChange={(v) => tool === 'brush' ? setBrush({ opacity: v / 100 }) : setEraser({ opacity: v / 100 })} />
+          {tool === 'brush' && (
+            <Numeric label="Flow" value={brush.flow * 100} min={0} max={100} step={1} suffix="%"
+              onChange={(v) => setBrush({ flow: v / 100 })} />
+          )}
+          <Numeric label="Spacing" value={brush.spacing * 100} min={1} max={100} step={1} suffix="%"
+            onChange={(v) => tool === 'brush' ? setBrush({ spacing: v / 100 }) : setEraser({ spacing: v / 100 })} />
+          {tool === 'brush' && (
+            <select className="ml-2" value={'normal'} onChange={() => {/* future per-stroke blend */}}>
+              {BLEND_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          )}
+        </>
+      )}
+      {tool === 'fill' && (
+        <>
+          <Numeric label="Tolerance" value={fillTolerance} min={0} max={255} step={1}
+            onChange={(v) => setFill({ tolerance: v })} />
+          <label className="flex items-center gap-1">
+            <input type="checkbox" checked={fillContiguous} onChange={(e) => setFill({ contiguous: e.target.checked })} />
+            Contiguous
+          </label>
+        </>
+      )}
+      {(tool === 'marquee-rect' || tool === 'marquee-ellipse') && (
+        <span className="text-ps-textDim">Drag to make a selection. Shift+Drag = constrain. Hold Alt = subtract (Phase 2).</span>
+      )}
+      {tool === 'crop' && <span className="text-ps-textDim">Drag a region. Release to crop.</span>}
+      {tool === 'move' && <span className="text-ps-textDim">Move tool active. Phase 2: full transform handles.</span>}
+    </div>
+  );
+}
+
+function Numeric({ label, value, min, max, step, suffix, onChange }: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  suffix?: string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="flex items-center gap-1">
+      <span className="text-ps-textDim">{label}:</span>
+      <input
+        type="number"
+        className="w-14"
+        value={Math.round(value * 100) / 100}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      {suffix && <span className="text-ps-textDim text-2xs">{suffix}</span>}
+    </label>
+  );
+}
