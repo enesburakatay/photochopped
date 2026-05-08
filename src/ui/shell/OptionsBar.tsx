@@ -1,5 +1,6 @@
 import { useEditor } from '@/store/editorStore';
 import { BLEND_MODES } from '@/core/types';
+import { BRUSH_PRESETS } from '@/tools/brushPresets';
 
 /**
  * Options bar: tool-specific controls displayed under the menu bar.
@@ -14,9 +15,27 @@ export function OptionsBar() {
   const fillTolerance = useEditor((s) => s.fillTolerance);
   const fillContiguous = useEditor((s) => s.fillContiguous);
   const setFill = useEditor((s) => s.setFillSettings);
+  const brushPreset = useEditor((s) => s.brushPreset);
+  const setBrushPreset = useEditor((s) => s.setBrushPreset);
 
   return (
     <div className="h-9 bg-ps-panel2 border-b border-ps-border px-3 flex items-center gap-3 text-xs">
+      {tool === 'brush' && (
+        <div className="flex items-center gap-1 mr-1">
+          {BRUSH_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              title={`${p.name} — ${p.description}`}
+              data-active={brushPreset === p.id ? 'true' : 'false'}
+              className="w-7 h-7 rounded text-base flex items-center justify-center hover:bg-ps-panel3 data-[active=true]:bg-ps-accent data-[active=true]:text-white"
+              onClick={() => setBrushPreset(p.id)}
+            >
+              <span aria-hidden>{p.glyph}</span>
+            </button>
+          ))}
+          <div className="w-px h-5 bg-ps-border mx-1" />
+        </div>
+      )}
       {(tool === 'brush' || tool === 'eraser') && (
         <>
           <Numeric label="Size" value={tool === 'brush' ? brush.radius : eraser.radius} min={1} max={1024} step={1}

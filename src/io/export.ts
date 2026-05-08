@@ -1,25 +1,72 @@
 import type { Document } from '@/core/types';
 import { Compositor } from '@/engine/compositor';
+import { encodeBMP } from './encoders/bmp';
+import { encodeTIFF } from './encoders/tiff';
+import { encodeICO } from './encoders/ico';
 
-export type ExportFormat = 'png' | 'jpeg' | 'webp';
+export type ExportFormat =
+  | 'png'
+  | 'jpeg'
+  | 'webp'
+  | 'avif'   // native via convertToBlob in modern browsers
+  | 'bmp'    // custom encoder, full alpha
+  | 'tiff'   // custom encoder, uncompressed RGBA
+  | 'ico';   // PNG-in-ICO container, ≤256 px
+
+/** Format metadata used by the export dialog. */
+export const EXPORT_FORMATS: Array<{
+  id: ExportFormat;
+  label: string;
+  ext: string;
+  hasQuality: boolean;
+  notes?: string;
+}> = [
+  { id: 'png',  label: 'PNG (lossless, transparency)', ext: 'png',  hasQuality: false },
+  { id: 'jpeg', label: 'JPEG (lossy, no transparency)', ext: 'jpg', hasQuality: true },
+  { id: 'webp', label: 'WebP (lossy, transparency)',    ext: 'webp', hasQuality: true },
+  { id: 'avif', label: 'AVIF (lossy, modern, smaller)', ext: 'avif', hasQuality: true, notes: 'May not be supported in all browsers.' },
+  { id: 'bmp',  label: 'BMP (uncompressed, transparency)', ext: 'bmp', hasQuality: false },
+  { id: 'tiff', label: 'TIFF (uncompressed RGBA)',       ext: 'tif', hasQuality: false },
+  { id: 'ico',  label: 'ICO (Windows icon, ≤256 px)',     ext: 'ico', hasQuality: false },
+];
 
 export interface ExportOptions {
   format: ExportFormat;
-  quality?: number; // 0..1 for jpeg/webp
+  quality?: number; // 0..1 for jpeg/webp/avif
 }
 
 /**
- * Composite the document and emit a Blob in the requested format.
- * Quality is ignored for PNG.
+ * Composite the document and emit a Blob in the requested format. Native formats
+ * go through OffscreenCanvas.convertToBlob; the rest run our custom encoders on
+ * the composited RGBA buffer.
  */
 export async function exportDocument(doc: Document, opts: ExportOptions): Promise<Blob> {
   const compositor = new Compositor();
   const off = compositor.render(doc);
-  const blob = await off.convertToBlob({
-    type: `image/${opts.format}`,
-    quality: opts.quality ?? 0.92,
-  });
-  compositor.dispose();
+  let blob: Blob;
+  try {
+    if (opts.format === 'png' || opts.format === 'jpeg' || opts.format === 'webp' || opts.format === 'avif') {
+      blob = await off.convertToBlob({ type: `image/${opts.format}`, quality: opts.quality ?? 0.92 });
+      // convertToBlob silently falls back to PNG when a format is unsupported;
+      // detect that and surface a clear error rather than mislabeling the file.
+      if (opts.format === 'avif' && blob.type !== 'image/avif') {
+        throw new Error('AVIF export is not supported by this browser. Try PNG or WebP instead.');
+      }
+    } else {
+      const ctx = off.getContext('2d')!;
+      const id = ctx.getImageData(0, 0, off.width, off.height);
+      if (opts.format === 'bmp') {
+        blob = encodeBMP(off.width, off.height, id.data);
+      } else if (opts.format === 'tiff') {
+        blob = encodeTIFF(off.width, off.height, id.data);
+      } else { // ico
+        const png = await off.convertToBlob({ type: 'image/png' });
+        blob = await encodeICO(off.width, off.height, png);
+      }
+    }
+  } finally {
+    compositor.dispose();
+  }
   return blob;
 }
 

@@ -15,6 +15,8 @@ import { isPointSelected } from '@/core/document';
  * - Eraser mode multiplies the existing alpha by (1 - kernel) instead of layering paint.
  */
 
+export type BrushTipMode = 'normal' | 'spray' | 'pencil' | 'crayon';
+
 export interface BrushSettings {
   radius: number;       // doc pixels
   hardness: number;     // 0-1 (1 = solid disk)
@@ -22,6 +24,12 @@ export interface BrushSettings {
   flow: number;         // 0-1 per-stamp ink flow
   spacing: number;      // 0..1 fraction of diameter between stamps
   color: RGBA;
+  // ---- Optional preset behavior. Defaults preserve original brush ----
+  tipMode?: BrushTipMode;   // dispatch knob for non-standard tips
+  scatter?: number;          // 0..1 random offset of dab placement (spray)
+  density?: number;          // dots per dab (spray)
+  jitterSize?: number;       // 0..1 random radius variation per dab
+  jitterOpacity?: number;    // 0..1 random opacity variation per dab
 }
 
 export interface EraserSettings {
@@ -171,6 +179,11 @@ export function strokeLine(
   color: RGBA | null,
   selection: Selection | null,
 ): Rect {
+  // Spray brushes scatter random dabs along the path instead of stamping at fixed spacing.
+  const tipMode = (brush as BrushSettings).tipMode ?? 'normal';
+  if (mode === 'paint' && tipMode === 'spray') {
+    return strokeSpray(pixels, ax, ay, bx, by, brush as BrushSettings, color, selection);
+  }
   const dx = bx - ax;
   const dy = by - ay;
   const dist = Math.hypot(dx, dy);
@@ -181,7 +194,9 @@ export function strokeLine(
     const t = i / steps;
     const sx = ax + dx * t;
     const sy = ay + dy * t;
-    const r = stamp(pixels, sx, sy, mode, brush, color, selection);
+    // Per-dab jitter for crayon/pencil presets (size + opacity wobble).
+    const jBrush = applyJitter(brush as BrushSettings);
+    const r = stamp(pixels, sx, sy, mode, jBrush, color, selection);
     if (r.width > 0 && r.height > 0) {
       minX = Math.min(minX, r.x);
       minY = Math.min(minY, r.y);
@@ -191,4 +206,80 @@ export function strokeLine(
   }
   if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Spray-can stroke. Walks the path and at each step scatters `density` tiny dabs
+ * in a random radius around the stamp center. Each dab has a small radius derived
+ * from the brush radius; this is what makes spray look airy rather than stamped.
+ *
+ * Holding the cursor still ALSO accumulates paint (real spray cans behave this way),
+ * so we always emit at least one dab per call even when the segment has zero length.
+ */
+function strokeSpray(
+  pixels: ImageDataLike,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  brush: BrushSettings,
+  color: RGBA | null,
+  selection: Selection | null,
+): Rect {
+  if (!color) return { x: 0, y: 0, width: 0, height: 0 };
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dist = Math.hypot(dx, dy);
+  const step = Math.max(1, (brush.spacing || 0.05) * brush.radius);
+  const steps = Math.max(1, Math.ceil(dist / step));
+  const density = Math.max(1, Math.floor(brush.density ?? 12));
+  const dabRadius = Math.max(0.5, brush.radius * 0.12);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  // Smaller per-dab brush — solid, low opacity, soft edge.
+  const dabBrush: BrushSettings = {
+    ...brush,
+    radius: dabRadius,
+    hardness: 0.5,
+    opacity: brush.opacity * 0.35,
+    flow: brush.flow,
+    spacing: 1,
+    tipMode: 'normal',
+  };
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const cx = ax + dx * t;
+    const cy = ay + dy * t;
+    for (let n = 0; n < density; n++) {
+      // Uniform random point inside the spray cone.
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * brush.radius;
+      const sx = cx + Math.cos(a) * rr;
+      const sy = cy + Math.sin(a) * rr;
+      const r = stamp(pixels, sx, sy, 'paint', dabBrush, color, selection);
+      if (r.width > 0 && r.height > 0) {
+        if (r.x < minX) minX = r.x;
+        if (r.y < minY) minY = r.y;
+        if (r.x + r.width > maxX) maxX = r.x + r.width;
+        if (r.y + r.height > maxY) maxY = r.y + r.height;
+      }
+    }
+  }
+  if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Apply per-dab size/opacity jitter for textured brushes (crayon, pencil).
+ * Returns the original object if no jitter fields are set, so the standard brush
+ * path stays allocation-free in the hot loop.
+ */
+function applyJitter(brush: BrushSettings): BrushSettings {
+  const js = brush.jitterSize ?? 0;
+  const jo = brush.jitterOpacity ?? 0;
+  if (js === 0 && jo === 0) return brush;
+  const sizeMul = 1 - js * Math.random();
+  const opMul = 1 - jo * Math.random();
+  return { ...brush, radius: Math.max(0.5, brush.radius * sizeMul), opacity: brush.opacity * opMul };
 }

@@ -16,7 +16,7 @@ import { useEditor } from '@/store/editorStore';
 import { useShortcuts } from '@/hooks/useShortcuts';
 import { useAutosave } from '@/hooks/useAutosave';
 import { importImageAsDocument, importFromClipboard } from '@/io/import';
-import { downloadBlob, exportDocument, exportProjectFile, importProjectFile, copyDocumentToClipboard } from '@/io/export';
+import { downloadBlob, exportDocument, exportProjectFile, importProjectFile, copyDocumentToClipboard, EXPORT_FORMATS } from '@/io/export';
 
 export function App() {
   const docs = useEditor((s) => s.docs);
@@ -140,9 +140,14 @@ export function App() {
           onConfirm={async (format, quality) => {
             const slot = useEditor.getState().docs[useEditor.getState().activeDocIndex];
             if (!slot) return;
-            const blob = await exportDocument(slot.doc, { format, quality });
-            downloadBlob(blob, `${slot.doc.name}.${format === 'jpeg' ? 'jpg' : format}`);
-            setExportDialogOpen(false);
+            try {
+              const blob = await exportDocument(slot.doc, { format, quality });
+              const ext = EXPORT_FORMATS.find((f) => f.id === format)?.ext ?? format;
+              downloadBlob(blob, `${slot.doc.name}.${ext}`);
+              setExportDialogOpen(false);
+            } catch (err) {
+              alert((err as Error).message ?? 'Export failed');
+            }
           }}
         />
       )}
