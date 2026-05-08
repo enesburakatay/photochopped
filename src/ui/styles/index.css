@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --pc-grid: 16px;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Photoshop-style transparency checkerboard for canvas backdrop */
+.pc-checker {
+  background-image:
+    linear-gradient(45deg, #6a6a6a 25%, transparent 25%),
+    linear-gradient(-45deg, #6a6a6a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #6a6a6a 75%),
+    linear-gradient(-45deg, transparent 75%, #6a6a6a 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-color: #8a8a8a;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #232323;
+}
+::-webkit-scrollbar-thumb {
+  background: #4a4a4a;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #5a5a5a;
+}
+
+/* Slim form controls */
+input[type="number"], input[type="text"], select {
+  background: #1a1a1a;
+  border: 1px solid #444;
+  color: #d0d0d0;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 12px;
+  outline: none;
+}
+input[type="number"]:focus, input[type="text"]:focus, select:focus {
+  border-color: #2a7fff;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 16px;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: #444;
+  border-radius: 2px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 12px;
+  width: 12px;
+  background: #d0d0d0;
+  border-radius: 50%;
+  margin-top: -4px;
+  cursor: pointer;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.pc-btn {
+  @apply px-2 py-1 text-xs rounded bg-ps-panel2 hover:bg-ps-panel3 border border-ps-border transition-colors;
+}
+.pc-btn-primary {
+  @apply px-2 py-1 text-xs rounded bg-ps-accent hover:bg-ps-accent2 text-white transition-colors;
+}
+
+.pc-tool-btn {
+  @apply w-8 h-8 flex items-center justify-center rounded text-ps-textDim hover:text-ps-text hover:bg-ps-panel3 transition-colors;
+}
+.pc-tool-btn[data-active="true"] {
+  @apply bg-ps-accent text-white hover:bg-ps-accent2;
+}
+
+.pc-panel-header {
+  @apply px-2 py-1 text-2xs uppercase tracking-wider text-ps-textDim bg-ps-panel border-b border-ps-border flex items-center justify-between;
+}
+
+.pc-divider {
+  @apply h-px bg-ps-border my-1;
+}
+
+/* Resize handles */
+.pc-resize-handle-v {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 150ms;
+}
+.pc-resize-handle-v:hover {
+  background: #2a7fff;
+}
+.pc-resize-handle-h {
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 150ms;
+}
+.pc-resize-handle-h:hover {
+  background: #2a7fff;
+}
