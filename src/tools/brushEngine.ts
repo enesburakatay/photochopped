@@ -260,13 +260,37 @@ function strokeSpray(
     const cx = ax + dx * t;
     const cy = ay + dy * t;
     for (let n = 0; n < density; n++) {
-      // Uniform random point inside the spray cone.
+      // Uniform random point inside the spray cone. `rand` doubles as the
+      // squared distance from the cursor center (since rr = sqrt(rand)*R), which
+      // is exactly the edge-blend factor we want — no extra distance math needed.
       const a = Math.random() * Math.PI * 2;
-      const rr = Math.sqrt(Math.random()) * brush.radius;
+      const rand = Math.random();
+      const rr = Math.sqrt(rand) * brush.radius;
       const sx = cx + Math.cos(a) * rr;
       const sy = cy + Math.sin(a) * rr;
-      const dabColor = smoothing ? sampleNeighborhoodAvg(pixels, sx, sy, sampleRadius) : color!;
-      if (smoothing && dabColor.a <= 0) continue; // skip transparent areas
+
+      let dabColor: RGBA;
+      if (smoothing) {
+        const sampled = sampleNeighborhoodAvg(pixels, sx, sy, sampleRadius);
+        if (color) {
+          // Inside the cursor: dabs are pure foreground (the eyedropper-picked color).
+          // Toward the edge: dabs lerp toward the sampled neighborhood, so the spray
+          // fades naturally into the surrounding pixels with no hard boundary.
+          const edgeMix = rand; // == (dist/radius)^2 — quadratic, foreground-biased
+          dabColor = {
+            r: color.r * (1 - edgeMix) + sampled.r * edgeMix,
+            g: color.g * (1 - edgeMix) + sampled.g * edgeMix,
+            b: color.b * (1 - edgeMix) + sampled.b * edgeMix,
+            a: 1,
+          };
+        } else {
+          dabColor = sampled;
+        }
+        if (dabColor.a <= 0) continue;
+      } else {
+        dabColor = color!;
+      }
+
       const r = stamp(pixels, sx, sy, 'paint', dabBrush, dabColor, selection);
       if (r.width > 0 && r.height > 0) {
         if (r.x < minX) minX = r.x;
