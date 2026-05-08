@@ -22,6 +22,7 @@ import {
 import { uid } from '@/core/id';
 import { BLACK, WHITE } from '@/core/color';
 import { strokeLine, type BrushSettings, type EraserSettings } from '@/tools/brushEngine';
+import { findPreset, type BrushPresetId } from '@/tools/brushPresets';
 import { floodFill } from '@/tools/fill';
 import type { ViewportState } from '@/engine/viewport';
 import { fitDocument, makeViewport } from '@/engine/viewport';
@@ -59,6 +60,7 @@ export interface EditorState {
   // ---- Tool settings
   brush: BrushSettings;
   eraser: EraserSettings;
+  brushPreset: BrushPresetId;
   fillTolerance: number;
   fillContiguous: boolean;
   // ---- UI state
@@ -76,6 +78,7 @@ export interface EditorState {
   swapColors: () => void;
   setBrush: (b: Partial<BrushSettings>) => void;
   setEraser: (e: Partial<EraserSettings>) => void;
+  setBrushPreset: (id: BrushPresetId) => void;
   setFillSettings: (s: { tolerance?: number; contiguous?: boolean }) => void;
   setViewport: (v: ViewportState) => void;
   fitToScreen: () => void;
@@ -124,8 +127,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   tool: 'brush',
   foreground: BLACK,
   background: WHITE,
-  brush: { radius: 12, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.1, color: BLACK },
+  brush: { radius: 12, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.1, color: BLACK, tipMode: 'normal' },
   eraser: { radius: 24, hardness: 0.8, opacity: 1, spacing: 0.1 },
+  brushPreset: 'standard',
   fillTolerance: 32,
   fillContiguous: true,
   showGrid: false,
@@ -176,6 +180,10 @@ export const useEditor = create<EditorState>((set, get) => ({
   swapColors() { set((s) => ({ foreground: s.background, background: s.foreground, brush: { ...s.brush, color: s.background } })); },
   setBrush(b) { set((s) => ({ brush: { ...s.brush, ...b } })); },
   setEraser(e) { set((s) => ({ eraser: { ...s.eraser, ...e } })); },
+  setBrushPreset(id) {
+    const preset = findPreset(id);
+    set((s) => ({ brushPreset: id, brush: preset.apply(s.brush) }));
+  },
   setFillSettings(p) { set({ fillTolerance: p.tolerance ?? get().fillTolerance, fillContiguous: p.contiguous ?? get().fillContiguous }); },
 
   setViewport(v) {

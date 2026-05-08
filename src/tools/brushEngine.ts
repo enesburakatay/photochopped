@@ -15,6 +15,8 @@ import { isPointSelected } from '@/core/document';
  * - Eraser mode multiplies the existing alpha by (1 - kernel) instead of layering paint.
  */
 
+export type BrushTipMode = 'normal' | 'spray' | 'smooth-spray' | 'pencil' | 'crayon';
+
 export interface BrushSettings {
   radius: number;       // doc pixels
   hardness: number;     // 0-1 (1 = solid disk)
@@ -22,6 +24,12 @@ export interface BrushSettings {
   flow: number;         // 0-1 per-stamp ink flow
   spacing: number;      // 0..1 fraction of diameter between stamps
   color: RGBA;
+  // ---- Optional preset behavior. Defaults preserve original brush ----
+  tipMode?: BrushTipMode;   // dispatch knob for non-standard tips
+  scatter?: number;          // 0..1 random offset of dab placement (spray)
+  density?: number;          // dots per dab (spray)
+  jitterSize?: number;       // 0..1 random radius variation per dab
+  jitterOpacity?: number;    // 0..1 random opacity variation per dab
 }
 
 export interface EraserSettings {
@@ -171,6 +179,11 @@ export function strokeLine(
   color: RGBA | null,
   selection: Selection | null,
 ): Rect {
+  // Spray brushes scatter random dabs along the path instead of stamping at fixed spacing.
+  const tipMode = (brush as BrushSettings).tipMode ?? 'normal';
+  if (mode === 'paint' && (tipMode === 'spray' || tipMode === 'smooth-spray')) {
+    return strokeSpray(pixels, ax, ay, bx, by, brush as BrushSettings, color, selection);
+  }
   const dx = bx - ax;
   const dy = by - ay;
   const dist = Math.hypot(dx, dy);
@@ -181,7 +194,9 @@ export function strokeLine(
     const t = i / steps;
     const sx = ax + dx * t;
     const sy = ay + dy * t;
-    const r = stamp(pixels, sx, sy, mode, brush, color, selection);
+    // Per-dab jitter for crayon/pencil presets (size + opacity wobble).
+    const jBrush = applyJitter(brush as BrushSettings);
+    const r = stamp(pixels, sx, sy, mode, jBrush, color, selection);
     if (r.width > 0 && r.height > 0) {
       minX = Math.min(minX, r.x);
       minY = Math.min(minY, r.y);
@@ -191,4 +206,151 @@ export function strokeLine(
   }
   if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Spray-can stroke. Walks the path and at each step scatters `density` tiny dabs
+ * in a random radius around the stamp center. Each dab has a small radius derived
+ * from the brush radius; this is what makes spray look airy rather than stamped.
+ *
+ * Holding the cursor still ALSO accumulates paint (real spray cans behave this way),
+ * so we always emit at least one dab per call even when the segment has zero length.
+ */
+function strokeSpray(
+  pixels: ImageDataLike,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  brush: BrushSettings,
+  color: RGBA | null,
+  selection: Selection | null,
+): Rect {
+  const smoothing = brush.tipMode === 'smooth-spray';
+  if (!smoothing && !color) return { x: 0, y: 0, width: 0, height: 0 };
+
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dist = Math.hypot(dx, dy);
+  const step = Math.max(1, (brush.spacing || 0.05) * brush.radius);
+  const steps = Math.max(1, Math.ceil(dist / step));
+  const density = Math.max(1, Math.floor(brush.density ?? 12));
+  const dabRadius = Math.max(0.8, brush.radius * (smoothing ? 0.18 : 0.12));
+  // Smoothing kernel radius — how far around each dab we sample for the average.
+  // Bigger = stronger blur per pass, but loses local detail; ~25% of brush radius is a sweet spot.
+  const sampleRadius = Math.max(2, Math.round(brush.radius * 0.25));
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  // Each dab is a small soft disk applied at low opacity. For smoothing we lay
+  // down the LOCAL AVERAGE color so high-frequency detail (pores, wrinkles, JPEG
+  // noise) gets attenuated; many soft passes build up a healing/smoothing effect.
+  const dabBrush: BrushSettings = {
+    ...brush,
+    radius: dabRadius,
+    hardness: 0.4,
+    opacity: brush.opacity * (smoothing ? 0.7 : 0.35),
+    flow: brush.flow,
+    spacing: 1,
+    tipMode: 'normal',
+  };
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const cx = ax + dx * t;
+    const cy = ay + dy * t;
+    for (let n = 0; n < density; n++) {
+      // Uniform random point inside the spray cone. `rand` doubles as the
+      // squared distance from the cursor center (since rr = sqrt(rand)*R), which
+      // is exactly the edge-blend factor we want — no extra distance math needed.
+      const a = Math.random() * Math.PI * 2;
+      const rand = Math.random();
+      const rr = Math.sqrt(rand) * brush.radius;
+      const sx = cx + Math.cos(a) * rr;
+      const sy = cy + Math.sin(a) * rr;
+
+      let dabColor: RGBA;
+      if (smoothing) {
+        const sampled = sampleNeighborhoodAvg(pixels, sx, sy, sampleRadius);
+        if (color) {
+          // Inside the cursor: dabs are pure foreground (the eyedropper-picked color).
+          // Toward the edge: dabs lerp toward the sampled neighborhood, so the spray
+          // fades naturally into the surrounding pixels with no hard boundary.
+          const edgeMix = rand; // == (dist/radius)^2 — quadratic, foreground-biased
+          dabColor = {
+            r: color.r * (1 - edgeMix) + sampled.r * edgeMix,
+            g: color.g * (1 - edgeMix) + sampled.g * edgeMix,
+            b: color.b * (1 - edgeMix) + sampled.b * edgeMix,
+            a: 1,
+          };
+        } else {
+          dabColor = sampled;
+        }
+        if (dabColor.a <= 0) continue;
+      } else {
+        dabColor = color!;
+      }
+
+      const r = stamp(pixels, sx, sy, 'paint', dabBrush, dabColor, selection);
+      if (r.width > 0 && r.height > 0) {
+        if (r.x < minX) minX = r.x;
+        if (r.y < minY) minY = r.y;
+        if (r.x + r.width > maxX) maxX = r.x + r.width;
+        if (r.y + r.height > maxY) maxY = r.y + r.height;
+      }
+    }
+  }
+  if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Gaussian-weighted average of a small disk of pixels. This is the kernel that
+ * makes the smoothing spray "heal" — averaging out detail on each dab.
+ */
+function sampleNeighborhoodAvg(
+  pixels: ImageDataLike,
+  cx: number,
+  cy: number,
+  radius: number,
+): RGBA {
+  const ix = Math.floor(cx);
+  const iy = Math.floor(cy);
+  const r = Math.max(1, Math.floor(radius));
+  const r2 = r * r;
+  const sigma2 = r2 * 0.5;
+  let sumR = 0, sumG = 0, sumB = 0, sumA = 0, sumW = 0;
+  for (let dy = -r; dy <= r; dy++) {
+    const yy = iy + dy;
+    if (yy < 0 || yy >= pixels.height) continue;
+    for (let dx = -r; dx <= r; dx++) {
+      const xx = ix + dx;
+      if (xx < 0 || xx >= pixels.width) continue;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const w = Math.exp(-d2 / sigma2);
+      const i = (yy * pixels.width + xx) * 4;
+      sumR += pixels.data[i] * w;
+      sumG += pixels.data[i + 1] * w;
+      sumB += pixels.data[i + 2] * w;
+      sumA += pixels.data[i + 3] * w;
+      sumW += w;
+    }
+  }
+  if (sumW === 0) return { r: 0, g: 0, b: 0, a: 0 };
+  return { r: sumR / sumW, g: sumG / sumW, b: sumB / sumW, a: (sumA / sumW) / 255 };
+}
+
+/**
+ * Apply per-dab size/opacity jitter for textured brushes (crayon, pencil).
+ * Returns the original object if no jitter fields are set, so the standard brush
+ * path stays allocation-free in the hot loop.
+ */
+function applyJitter(brush: BrushSettings): BrushSettings {
+  const js = brush.jitterSize ?? 0;
+  const jo = brush.jitterOpacity ?? 0;
+  if (js === 0 && jo === 0) return brush;
+  const sizeMul = 1 - js * Math.random();
+  const opMul = 1 - jo * Math.random();
+  return { ...brush, radius: Math.max(0.5, brush.radius * sizeMul), opacity: brush.opacity * opMul };
 }

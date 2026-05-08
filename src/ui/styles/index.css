@@ -93,6 +93,9 @@ button {
 .pc-btn-primary {
   @apply px-2 py-1 text-xs rounded bg-ps-accent hover:bg-ps-accent2 text-white transition-colors;
 }
+.pc-btn-danger {
+  @apply px-2 py-1 text-xs rounded bg-ps-danger hover:brightness-110 text-white transition-colors;
+}
 
 .pc-tool-btn {
   @apply w-8 h-8 flex items-center justify-center rounded text-ps-textDim hover:text-ps-text hover:bg-ps-panel3 transition-colors;
