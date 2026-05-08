@@ -15,7 +15,7 @@ import { isPointSelected } from '@/core/document';
  * - Eraser mode multiplies the existing alpha by (1 - kernel) instead of layering paint.
  */
 
-export type BrushTipMode = 'normal' | 'spray' | 'pencil' | 'crayon';
+export type BrushTipMode = 'normal' | 'spray' | 'smooth-spray' | 'pencil' | 'crayon';
 
 export interface BrushSettings {
   radius: number;       // doc pixels
@@ -181,7 +181,7 @@ export function strokeLine(
 ): Rect {
   // Spray brushes scatter random dabs along the path instead of stamping at fixed spacing.
   const tipMode = (brush as BrushSettings).tipMode ?? 'normal';
-  if (mode === 'paint' && tipMode === 'spray') {
+  if (mode === 'paint' && (tipMode === 'spray' || tipMode === 'smooth-spray')) {
     return strokeSpray(pixels, ax, ay, bx, by, brush as BrushSettings, color, selection);
   }
   const dx = bx - ax;
@@ -226,22 +226,30 @@ function strokeSpray(
   color: RGBA | null,
   selection: Selection | null,
 ): Rect {
-  if (!color) return { x: 0, y: 0, width: 0, height: 0 };
+  const smoothing = brush.tipMode === 'smooth-spray';
+  if (!smoothing && !color) return { x: 0, y: 0, width: 0, height: 0 };
+
   const dx = bx - ax;
   const dy = by - ay;
   const dist = Math.hypot(dx, dy);
   const step = Math.max(1, (brush.spacing || 0.05) * brush.radius);
   const steps = Math.max(1, Math.ceil(dist / step));
   const density = Math.max(1, Math.floor(brush.density ?? 12));
-  const dabRadius = Math.max(0.5, brush.radius * 0.12);
+  const dabRadius = Math.max(0.8, brush.radius * (smoothing ? 0.18 : 0.12));
+  // Smoothing kernel radius — how far around each dab we sample for the average.
+  // Bigger = stronger blur per pass, but loses local detail; ~25% of brush radius is a sweet spot.
+  const sampleRadius = Math.max(2, Math.round(brush.radius * 0.25));
+
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-  // Smaller per-dab brush — solid, low opacity, soft edge.
+  // Each dab is a small soft disk applied at low opacity. For smoothing we lay
+  // down the LOCAL AVERAGE color so high-frequency detail (pores, wrinkles, JPEG
+  // noise) gets attenuated; many soft passes build up a healing/smoothing effect.
   const dabBrush: BrushSettings = {
     ...brush,
     radius: dabRadius,
-    hardness: 0.5,
-    opacity: brush.opacity * 0.35,
+    hardness: 0.4,
+    opacity: brush.opacity * (smoothing ? 0.7 : 0.35),
     flow: brush.flow,
     spacing: 1,
     tipMode: 'normal',
@@ -257,7 +265,9 @@ function strokeSpray(
       const rr = Math.sqrt(Math.random()) * brush.radius;
       const sx = cx + Math.cos(a) * rr;
       const sy = cy + Math.sin(a) * rr;
-      const r = stamp(pixels, sx, sy, 'paint', dabBrush, color, selection);
+      const dabColor = smoothing ? sampleNeighborhoodAvg(pixels, sx, sy, sampleRadius) : color!;
+      if (smoothing && dabColor.a <= 0) continue; // skip transparent areas
+      const r = stamp(pixels, sx, sy, 'paint', dabBrush, dabColor, selection);
       if (r.width > 0 && r.height > 0) {
         if (r.x < minX) minX = r.x;
         if (r.y < minY) minY = r.y;
@@ -268,6 +278,43 @@ function strokeSpray(
   }
   if (!isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+/**
+ * Gaussian-weighted average of a small disk of pixels. This is the kernel that
+ * makes the smoothing spray "heal" — averaging out detail on each dab.
+ */
+function sampleNeighborhoodAvg(
+  pixels: ImageDataLike,
+  cx: number,
+  cy: number,
+  radius: number,
+): RGBA {
+  const ix = Math.floor(cx);
+  const iy = Math.floor(cy);
+  const r = Math.max(1, Math.floor(radius));
+  const r2 = r * r;
+  const sigma2 = r2 * 0.5;
+  let sumR = 0, sumG = 0, sumB = 0, sumA = 0, sumW = 0;
+  for (let dy = -r; dy <= r; dy++) {
+    const yy = iy + dy;
+    if (yy < 0 || yy >= pixels.height) continue;
+    for (let dx = -r; dx <= r; dx++) {
+      const xx = ix + dx;
+      if (xx < 0 || xx >= pixels.width) continue;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const w = Math.exp(-d2 / sigma2);
+      const i = (yy * pixels.width + xx) * 4;
+      sumR += pixels.data[i] * w;
+      sumG += pixels.data[i + 1] * w;
+      sumB += pixels.data[i + 2] * w;
+      sumA += pixels.data[i + 3] * w;
+      sumW += w;
+    }
+  }
+  if (sumW === 0) return { r: 0, g: 0, b: 0, a: 0 };
+  return { r: sumR / sumW, g: sumG / sumW, b: sumB / sumW, a: (sumA / sumW) / 255 };
 }
 
 /**

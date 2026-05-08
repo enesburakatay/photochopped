@@ -93,14 +93,14 @@ export const BRUSH_PRESETS: BrushPreset[] = [
     id: 'spray',
     name: 'Spray Can',
     glyph: '🥫',
-    description: 'Scattered dots within a radius — paint accumulates if you hold still.',
-    apply: (b) => ({ ...b, hardness: 0.4, opacity: 0.35, flow: 0.6, spacing: 0.08, tipMode: 'spray', density: 16, scatter: 1 }),
+    description: 'Smoothing spray — softens skin, irons out wrinkles, blurs blemishes. Builds up over multiple passes.',
+    apply: (b) => ({ ...b, hardness: 0.35, opacity: 0.25, flow: 0.6, spacing: 0.05, tipMode: 'smooth-spray', density: 14, scatter: 1, jitterSize: 0, jitterOpacity: 0 }),
   },
   {
     id: 'airbrush',
     name: 'Airbrush',
     glyph: '💨',
-    description: 'Continuous fine spray that builds up smoothly.',
+    description: 'Continuous fine color spray that builds up smoothly (uses foreground color).',
     apply: (b) => ({ ...b, hardness: 0.3, opacity: 0.18, flow: 1, spacing: 0.04, tipMode: 'spray', density: 28, scatter: 1 }),
   },
 ];
