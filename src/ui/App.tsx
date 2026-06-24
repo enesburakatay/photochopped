@@ -12,6 +12,7 @@ import { PropertiesPanel } from './panels/PropertiesPanel';
 import { NewDocumentDialog } from './dialogs/NewDocumentDialog';
 import { ExportDialog } from './dialogs/ExportDialog';
 import { FilterDialog, type FilterChoice } from './dialogs/FilterDialog';
+import { BackgroundRemovalDialog } from './dialogs/BackgroundRemovalDialog';
 import { useEditor } from '@/store/editorStore';
 import { useShortcuts } from '@/hooks/useShortcuts';
 import { useAutosave } from '@/hooks/useAutosave';
@@ -26,6 +27,7 @@ export function App() {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [filterDialog, setFilterDialog] = useState<FilterChoice | null>(null);
+  const [bgRemovalOpen, setBgRemovalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -103,11 +105,12 @@ export function App() {
           if (slot) await copyDocumentToClipboard(slot.doc);
         }}
         onApplyFilter={(choice) => setFilterDialog(choice)}
+        onRemoveBackground={() => setBgRemovalOpen(true)}
       />
       <OptionsBar />
       <TabBar />
       <div className="flex-1 flex overflow-hidden">
-        <Toolbar />
+        <Toolbar onRemoveBackground={() => setBgRemovalOpen(true)} />
         <main className="flex-1 relative overflow-hidden">
           {docs.length > 0 && <Canvas key={docs[activeDocIndex]?.doc.id} />}
         </main>
@@ -152,6 +155,7 @@ export function App() {
         />
       )}
       {filterDialog && <FilterDialog choice={filterDialog} onClose={() => setFilterDialog(null)} />}
+      {bgRemovalOpen && <BackgroundRemovalDialog onClose={() => setBgRemovalOpen(false)} />}
     </div>
   );
 }

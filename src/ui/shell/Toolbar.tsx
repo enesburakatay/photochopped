@@ -8,11 +8,13 @@ import {
   Pipette,
   Brush,
   Eraser,
+  PaintbrushVertical,
   PaintBucket,
   Type,
   Hand,
   ZoomIn,
   Shapes,
+  Scissors,
 } from 'lucide-react';
 import { useEditor } from '@/store/editorStore';
 import type { ToolId } from '@/tools/types';
@@ -30,11 +32,12 @@ const TOOLS: ToolDef[] = [
   { id: 'marquee-rect', icon: <Square size={18} />, label: 'Rectangular Marquee', shortcut: 'M' },
   { id: 'marquee-ellipse', icon: <Circle size={18} />, label: 'Elliptical Marquee', shortcut: 'M' },
   { id: 'lasso', icon: <Lasso size={18} />, label: 'Lasso', shortcut: 'L' },
-  { id: 'magic-wand', icon: <Wand2 size={18} />, label: 'Magic Wand', shortcut: 'W' },
+  { id: 'magic-wand', icon: <Wand2 size={18} />, label: 'Magic Wand — click to cut, Alt+click to restore', shortcut: 'W' },
   { id: 'crop', icon: <Crop size={18} />, label: 'Crop', shortcut: 'C' },
   { id: 'eyedropper', icon: <Pipette size={18} />, label: 'Eyedropper', shortcut: 'I' },
   { id: 'brush', icon: <Brush size={18} />, label: 'Brush', shortcut: 'B' },
   { id: 'eraser', icon: <Eraser size={18} />, label: 'Eraser', shortcut: 'E' },
+  { id: 'restore', icon: <PaintbrushVertical size={18} />, label: 'Restore Brush — paint removed pixels back', shortcut: 'K' },
   { id: 'fill', icon: <PaintBucket size={18} />, label: 'Paint Bucket', shortcut: 'G' },
   { id: 'shape-rect', icon: <Shapes size={18} />, label: 'Shape', shortcut: 'R' },
   { id: 'text', icon: <Type size={18} />, label: 'Text', shortcut: 'T' },
@@ -42,7 +45,7 @@ const TOOLS: ToolDef[] = [
   { id: 'zoom', icon: <ZoomIn size={18} />, label: 'Zoom', shortcut: 'Z' },
 ];
 
-export function Toolbar() {
+export function Toolbar({ onRemoveBackground }: { onRemoveBackground?: () => void } = {}) {
   const tool = useEditor((s) => s.tool);
   const setTool = useEditor((s) => s.setTool);
   const fg = useEditor((s) => s.foreground);
@@ -50,6 +53,7 @@ export function Toolbar() {
   const swap = useEditor((s) => s.swapColors);
   const setFg = useEditor((s) => s.setForeground);
   const setBg = useEditor((s) => s.setBackground);
+  const removeBg = useEditor((s) => s.removeBackgroundFromActive);
 
   return (
     <div className="w-12 bg-ps-panel border-r border-ps-border flex flex-col items-center py-1 gap-0.5">
@@ -64,6 +68,15 @@ export function Toolbar() {
           {t.icon}
         </button>
       ))}
+      <div className="pc-divider w-8" />
+      <button
+        className="pc-tool-btn text-ps-accent"
+        title="Remove Background (click = one-tap, right-click = options)"
+        onClick={() => removeBg()}
+        onContextMenu={(e) => { e.preventDefault(); onRemoveBackground?.(); }}
+      >
+        <Scissors size={18} />
+      </button>
       <div className="pc-divider w-8" />
       <ColorSwatches fg={fg} bg={bg} onSwap={swap} onResetFg={() => setFg({ r: 0, g: 0, b: 0, a: 1 })} onResetBg={() => setBg({ r: 255, g: 255, b: 255, a: 1 })} />
     </div>

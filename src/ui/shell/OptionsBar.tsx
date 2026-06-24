@@ -12,9 +12,14 @@ export function OptionsBar() {
   const eraser = useEditor((s) => s.eraser);
   const setBrush = useEditor((s) => s.setBrush);
   const setEraser = useEditor((s) => s.setEraser);
+  const restoreBrush = useEditor((s) => s.restoreBrush);
+  const setRestoreBrush = useEditor((s) => s.setRestoreBrush);
   const fillTolerance = useEditor((s) => s.fillTolerance);
   const fillContiguous = useEditor((s) => s.fillContiguous);
   const setFill = useEditor((s) => s.setFillSettings);
+  const wandTolerance = useEditor((s) => s.wandTolerance);
+  const wandContiguous = useEditor((s) => s.wandContiguous);
+  const setWand = useEditor((s) => s.setWandSettings);
   const brushPreset = useEditor((s) => s.brushPreset);
   const setBrushPreset = useEditor((s) => s.setBrushPreset);
 
@@ -57,6 +62,17 @@ export function OptionsBar() {
           )}
         </>
       )}
+      {tool === 'restore' && (
+        <>
+          <Numeric label="Size" value={restoreBrush.radius} min={1} max={1024} step={1}
+            onChange={(v) => setRestoreBrush({ radius: v })} />
+          <Numeric label="Hardness" value={restoreBrush.hardness * 100} min={0} max={100} step={1} suffix="%"
+            onChange={(v) => setRestoreBrush({ hardness: v / 100 })} />
+          <Numeric label="Opacity" value={restoreBrush.opacity * 100} min={0} max={100} step={1} suffix="%"
+            onChange={(v) => setRestoreBrush({ opacity: v / 100 })} />
+          <span className="text-ps-textDim">Paint over removed areas to bring them back.</span>
+        </>
+      )}
       {tool === 'fill' && (
         <>
           <Numeric label="Tolerance" value={fillTolerance} min={0} max={255} step={1}
@@ -65,6 +81,17 @@ export function OptionsBar() {
             <input type="checkbox" checked={fillContiguous} onChange={(e) => setFill({ contiguous: e.target.checked })} />
             Contiguous
           </label>
+        </>
+      )}
+      {tool === 'magic-wand' && (
+        <>
+          <Numeric label="Tolerance" value={wandTolerance} min={0} max={255} step={1}
+            onChange={(v) => setWand({ tolerance: v })} />
+          <label className="flex items-center gap-1">
+            <input type="checkbox" checked={wandContiguous} onChange={(e) => setWand({ contiguous: e.target.checked })} />
+            Contiguous
+          </label>
+          <span className="text-ps-textDim">Click a region to cut it out · Alt+Click to restore it.</span>
         </>
       )}
       {(tool === 'marquee-rect' || tool === 'marquee-ellipse') && (

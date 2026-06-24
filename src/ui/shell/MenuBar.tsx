@@ -11,6 +11,7 @@ interface Props {
   onPaste: () => void;
   onCopy: () => void;
   onApplyFilter: (choice: FilterChoice) => void;
+  onRemoveBackground: () => void;
 }
 
 interface MenuItem {
@@ -58,6 +59,9 @@ export function MenuBar(props: Props) {
             useEditor.getState().cropDocument(slot.doc.selection.bounds);
           }
         } },
+        { label: '', divider: true },
+        { label: 'Remove Background', onClick: () => useEditor.getState().removeBackgroundFromActive() },
+        { label: 'Remove Background…', onClick: props.onRemoveBackground },
       ],
     },
     {

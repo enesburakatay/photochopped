@@ -39,7 +39,7 @@ export interface EraserSettings {
   spacing: number;
 }
 
-export type BrushMode = 'paint' | 'erase';
+export type BrushMode = 'paint' | 'erase' | 'restore';
 
 interface Kernel {
   size: number;
@@ -157,6 +157,25 @@ export function stamp(
         if (selA <= 0) continue;
         const di = (y * pixels.width + x) * 4;
         buf[di + 3] = buf[di + 3] * (1 - ka * selA);
+      }
+    }
+  } else if (mode === 'restore') {
+    // Inverse of erase: raise alpha back toward fully opaque. RGB is untouched by
+    // every cutout op, so this re-reveals the original pixels (used to paint a
+    // removed background back in after auto-removal).
+    for (let y = y0; y < y1; y++) {
+      const ky = y - (cy - half);
+      for (let x = x0; x < x1; x++) {
+        const kx = x - (cx - half);
+        if (kx < 0 || ky < 0 || kx >= k.size || ky >= k.size) continue;
+        const ka = k.data[(ky | 0) * k.size + (kx | 0)] * dabAlpha;
+        if (ka <= 0) continue;
+        const selA = isPointSelected(selection, x, y) / 255;
+        if (selA <= 0) continue;
+        const di = (y * pixels.width + x) * 4;
+        const da = buf[di + 3] / 255;
+        const t = ka * selA;
+        buf[di + 3] = (da + (1 - da) * t) * 255;
       }
     }
   }

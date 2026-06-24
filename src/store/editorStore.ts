@@ -24,6 +24,7 @@ import { BLACK, WHITE } from '@/core/color';
 import { strokeLine, type BrushSettings, type EraserSettings } from '@/tools/brushEngine';
 import { findPreset, type BrushPresetId } from '@/tools/brushPresets';
 import { floodFill } from '@/tools/fill';
+import { removeBackground, floodAlphaRegion, DEFAULT_BG_REMOVAL, type BgRemovalOptions } from '@/tools/backgroundRemoval';
 import type { ViewportState } from '@/engine/viewport';
 import { fitDocument, makeViewport } from '@/engine/viewport';
 import type { FilterDescriptor } from '@/filters';
@@ -60,9 +61,14 @@ export interface EditorState {
   // ---- Tool settings
   brush: BrushSettings;
   eraser: EraserSettings;
+  restoreBrush: EraserSettings;
   brushPreset: BrushPresetId;
   fillTolerance: number;
   fillContiguous: boolean;
+  // ---- Cutout / background removal
+  bgRemoval: BgRemovalOptions;
+  wandTolerance: number;
+  wandContiguous: boolean;
   // ---- UI state
   showGrid: boolean;
   showRulers: boolean;
@@ -78,8 +84,11 @@ export interface EditorState {
   swapColors: () => void;
   setBrush: (b: Partial<BrushSettings>) => void;
   setEraser: (e: Partial<EraserSettings>) => void;
+  setRestoreBrush: (e: Partial<EraserSettings>) => void;
   setBrushPreset: (id: BrushPresetId) => void;
   setFillSettings: (s: { tolerance?: number; contiguous?: boolean }) => void;
+  setBgRemoval: (o: Partial<BgRemovalOptions>) => void;
+  setWandSettings: (s: { tolerance?: number; contiguous?: boolean }) => void;
   setViewport: (v: ViewportState) => void;
   fitToScreen: () => void;
   // ---- Doc mutations
@@ -94,10 +103,13 @@ export interface EditorState {
   deselect: () => void;
   // ---- Painting
   beginStroke: () => void;
-  paintStroke: (a: { x: number; y: number }, b: { x: number; y: number }, mode: 'paint' | 'erase') => void;
+  paintStroke: (a: { x: number; y: number }, b: { x: number; y: number }, mode: 'paint' | 'erase' | 'restore') => void;
   endStroke: () => void;
   // ---- Bucket fill
   bucketFill: (x: number, y: number, color: RGBA) => void;
+  // ---- Cutout / background removal
+  removeBackgroundFromActive: (opts?: Partial<BgRemovalOptions>) => void;
+  magicWandCutout: (x: number, y: number, mode: 'cut' | 'restore') => void;
   // ---- Marquee selection
   marquee: (rect: Rect, mode: 'rect' | 'ellipse') => void;
   // ---- Crop
@@ -129,9 +141,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   background: WHITE,
   brush: { radius: 12, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.1, color: BLACK, tipMode: 'normal' },
   eraser: { radius: 24, hardness: 0.8, opacity: 1, spacing: 0.1 },
+  restoreBrush: { radius: 24, hardness: 0.7, opacity: 1, spacing: 0.1 },
   brushPreset: 'standard',
   fillTolerance: 32,
   fillContiguous: true,
+  bgRemoval: { ...DEFAULT_BG_REMOVAL },
+  wandTolerance: 32,
+  wandContiguous: true,
   showGrid: false,
   showRulers: false,
 
@@ -180,11 +196,14 @@ export const useEditor = create<EditorState>((set, get) => ({
   swapColors() { set((s) => ({ foreground: s.background, background: s.foreground, brush: { ...s.brush, color: s.background } })); },
   setBrush(b) { set((s) => ({ brush: { ...s.brush, ...b } })); },
   setEraser(e) { set((s) => ({ eraser: { ...s.eraser, ...e } })); },
+  setRestoreBrush(e) { set((s) => ({ restoreBrush: { ...s.restoreBrush, ...e } })); },
   setBrushPreset(id) {
     const preset = findPreset(id);
     set((s) => ({ brushPreset: id, brush: preset.apply(s.brush) }));
   },
   setFillSettings(p) { set({ fillTolerance: p.tolerance ?? get().fillTolerance, fillContiguous: p.contiguous ?? get().fillContiguous }); },
+  setBgRemoval(o) { set((s) => ({ bgRemoval: { ...s.bgRemoval, ...o } })); },
+  setWandSettings(p) { set({ wandTolerance: p.tolerance ?? get().wandTolerance, wandContiguous: p.contiguous ?? get().wandContiguous }); },
 
   setViewport(v) {
     set((s) => {
@@ -301,7 +320,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!strokeState.layerId) return;
     const layer = findLayer(slot.doc.layers, strokeState.layerId);
     if (!layer || layer.kind !== 'raster') return;
-    const settings = mode === 'paint' ? s.brush : s.eraser;
+    const settings = mode === 'paint' ? s.brush : mode === 'restore' ? s.restoreBrush : s.eraser;
     const color = mode === 'paint' ? s.foreground : null;
     const r = strokeLine(layer.pixels, a.x, a.y, b.x, b.y, mode, settings, color, slot.doc.selection);
     if (!strokeState.rect) strokeState.rect = r;
@@ -329,7 +348,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const r = strokeState.rect;
     const beforeTile = copyPixelTile(strokeState.before.img, r);
     const afterTile = copyPixelTile(layer.pixels, r);
-    slot.history.push(s.tool === 'eraser' ? 'Erase' : 'Paint', {
+    slot.history.push(s.tool === 'eraser' ? 'Erase' : s.tool === 'restore' ? 'Restore' : 'Paint', {
       type: 'paint-tile',
       layerId: strokeState.layerId,
       x: r.x,
@@ -361,6 +380,44 @@ export const useEditor = create<EditorState>((set, get) => ({
         });
       }
       return { ...slot, rev: slot.rev + 1 };
+    }));
+  },
+
+  removeBackgroundFromActive(opts) {
+    set((s) => mutateActiveDoc(s, (slot) => {
+      const id = slot.doc.activeLayerId;
+      if (!id) return slot;
+      const layer = findLayer(slot.doc.layers, id);
+      if (!layer || layer.kind !== 'raster') return slot;
+      const options = { ...get().bgRemoval, ...opts };
+      const before = copyPixelTile(layer.pixels, { x: 0, y: 0, width: layer.pixels.width, height: layer.pixels.height });
+      removeBackground(layer.pixels, options);
+      const after = copyPixelTile(layer.pixels, { x: 0, y: 0, width: layer.pixels.width, height: layer.pixels.height });
+      slot.history.push('Remove Background', { type: 'paint-tile', layerId: id, x: 0, y: 0, before, after });
+      return { ...slot, rev: slot.rev + 1 };
+    }));
+  },
+
+  magicWandCutout(x, y, mode) {
+    set((s) => mutateActiveDoc(s, (slot) => {
+      const id = slot.doc.activeLayerId;
+      if (!id) return slot;
+      const layer = findLayer(slot.doc.layers, id);
+      if (!layer || layer.kind !== 'raster') return slot;
+      const before = { width: layer.pixels.width, height: layer.pixels.height, data: new Uint8ClampedArray(layer.pixels.data) };
+      const r = floodAlphaRegion(layer.pixels, { x, y }, get().wandTolerance, get().wandContiguous, mode);
+      if (r.width > 0 && r.height > 0) {
+        slot.history.push(mode === 'cut' ? 'Cut Region' : 'Restore Region', {
+          type: 'paint-tile',
+          layerId: id,
+          x: r.x,
+          y: r.y,
+          before: copyPixelTile(before, r),
+          after: copyPixelTile(layer.pixels, r),
+        });
+        return { ...slot, rev: slot.rev + 1 };
+      }
+      return slot;
     }));
   },
 

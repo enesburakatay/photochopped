@@ -11,6 +11,7 @@ export type ToolId =
   | 'eyedropper'
   | 'brush'
   | 'eraser'
+  | 'restore'
   | 'fill'
   | 'gradient'
   | 'shape-rect'

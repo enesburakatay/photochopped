@@ -16,6 +16,7 @@ const TOOL_KEYS: Record<string, ToolId> = {
   i: 'eyedropper',
   b: 'brush',
   e: 'eraser',
+  k: 'restore',
   g: 'fill',
   t: 'text',
   h: 'hand',
@@ -39,6 +40,7 @@ export function useShortcuts(opts: {
   const duplicate = useEditor((s) => s.duplicateActiveLayer);
   const setBrush = useEditor((s) => s.setBrush);
   const setEraser = useEditor((s) => s.setEraser);
+  const setRestoreBrush = useEditor((s) => s.setRestoreBrush);
   const tool = useEditor((s) => s.tool);
   const fitToScreen = useEditor((s) => s.fitToScreen);
   const setForeground = useEditor((s) => s.setForeground);
@@ -76,11 +78,13 @@ export function useShortcuts(opts: {
       // Brush size with [ ]
       if (k === '[') {
         if (tool === 'eraser') setEraser({ radius: Math.max(1, useEditor.getState().eraser.radius - 2) });
+        else if (tool === 'restore') setRestoreBrush({ radius: Math.max(1, useEditor.getState().restoreBrush.radius - 2) });
         else setBrush({ radius: Math.max(1, useEditor.getState().brush.radius - 2) });
         return;
       }
       if (k === ']') {
         if (tool === 'eraser') setEraser({ radius: Math.min(1024, useEditor.getState().eraser.radius + 2) });
+        else if (tool === 'restore') setRestoreBrush({ radius: Math.min(1024, useEditor.getState().restoreBrush.radius + 2) });
         else setBrush({ radius: Math.min(1024, useEditor.getState().brush.radius + 2) });
         return;
       }
@@ -93,5 +97,5 @@ export function useShortcuts(opts: {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setTool, undo, redo, swapColors, selectAll, deselect, duplicate, setBrush, setEraser, tool, fitToScreen, setBackground, setForeground, opts]);
+  }, [setTool, undo, redo, swapColors, selectAll, deselect, duplicate, setBrush, setEraser, setRestoreBrush, tool, fitToScreen, setBackground, setForeground, opts]);
 }

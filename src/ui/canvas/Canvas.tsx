@@ -27,6 +27,7 @@ export function Canvas() {
   const tool = useEditor((s) => s.tool);
   const brush = useEditor((s) => s.brush);
   const eraser = useEditor((s) => s.eraser);
+  const restoreBrush = useEditor((s) => s.restoreBrush);
   const fg = useEditor((s) => s.foreground);
   const setViewport = useEditor((s) => s.setViewport);
   const beginStroke = useEditor((s) => s.beginStroke);
@@ -36,6 +37,7 @@ export function Canvas() {
   const marquee = useEditor((s) => s.marquee);
   const cropDocument = useEditor((s) => s.cropDocument);
   const setForeground = useEditor((s) => s.setForeground);
+  const magicWandCutout = useEditor((s) => s.magicWandCutout);
 
   // Initial fit to screen on first mount or doc change.
   useEffect(() => {
@@ -117,7 +119,7 @@ export function Canvas() {
   }, [setViewport]);
 
   // Pointer state (stroke / drag).
-  type DragMode = 'pan' | 'paint' | 'erase' | 'marquee-rect' | 'marquee-ellipse' | 'crop' | null;
+  type DragMode = 'pan' | 'paint' | 'erase' | 'restore' | 'marquee-rect' | 'marquee-ellipse' | 'crop' | null;
   const dragRef = useRef<{
     mode: DragMode;
     last: { x: number; y: number } | null;
@@ -159,15 +161,22 @@ export function Canvas() {
       return;
     }
 
-    if (tool === 'brush' || tool === 'eraser') {
+    if (tool === 'brush' || tool === 'eraser' || tool === 'restore') {
+      const mode = tool === 'eraser' ? 'erase' : tool === 'restore' ? 'restore' : 'paint';
       beginStroke();
-      paintStroke(dp, dp, tool === 'eraser' ? 'erase' : 'paint');
-      dragRef.current = { mode: tool === 'eraser' ? 'erase' : 'paint', last: dp, startScreen: sp, rectDoc: null };
+      paintStroke(dp, dp, mode);
+      dragRef.current = { mode, last: dp, startScreen: sp, rectDoc: null };
       return;
     }
 
     if (tool === 'fill') {
       bucketFill(dp.x, dp.y, fg);
+      return;
+    }
+
+    if (tool === 'magic-wand') {
+      // Click cuts the region out (alpha→0); Alt-click restores it (alpha→255).
+      magicWandCutout(dp.x, dp.y, e.altKey ? 'restore' : 'cut');
       return;
     }
 
@@ -198,8 +207,8 @@ export function Canvas() {
       // Update brush cursor overlay only.
       overlayRef.current = {
         ...overlayRef.current,
-        brushCursor: (tool === 'brush' || tool === 'eraser')
-          ? { x: dp.x, y: dp.y, radius: tool === 'eraser' ? eraser.radius : brush.radius }
+        brushCursor: (tool === 'brush' || tool === 'eraser' || tool === 'restore')
+          ? { x: dp.x, y: dp.y, radius: tool === 'eraser' ? eraser.radius : tool === 'restore' ? restoreBrush.radius : brush.radius }
           : null,
       };
       return;
@@ -213,12 +222,12 @@ export function Canvas() {
       return;
     }
 
-    if (drag.mode === 'paint' || drag.mode === 'erase') {
-      paintStroke(drag.last as { x: number; y: number }, dp, drag.mode === 'erase' ? 'erase' : 'paint');
+    if (drag.mode === 'paint' || drag.mode === 'erase' || drag.mode === 'restore') {
+      paintStroke(drag.last as { x: number; y: number }, dp, drag.mode);
       drag.last = dp;
       overlayRef.current = {
         ...overlayRef.current,
-        brushCursor: { x: dp.x, y: dp.y, radius: drag.mode === 'erase' ? eraser.radius : brush.radius },
+        brushCursor: { x: dp.x, y: dp.y, radius: drag.mode === 'erase' ? eraser.radius : drag.mode === 'restore' ? restoreBrush.radius : brush.radius },
       };
       return;
     }
@@ -239,7 +248,7 @@ export function Canvas() {
 
   const onPointerUp = () => {
     const drag = dragRef.current;
-    if (drag.mode === 'paint' || drag.mode === 'erase') {
+    if (drag.mode === 'paint' || drag.mode === 'erase' || drag.mode === 'restore') {
       endStroke();
     }
     if ((drag.mode === 'marquee-rect' || drag.mode === 'marquee-ellipse') && drag.rectDoc && drag.rectDoc.width > 1 && drag.rectDoc.height > 1) {
@@ -291,7 +300,9 @@ function cursorFor(tool: string, space: boolean): string {
     case 'eyedropper': return 'crosshair';
     case 'brush':
     case 'eraser':
+    case 'restore':
     case 'fill':
+    case 'magic-wand':
     case 'marquee-rect':
     case 'marquee-ellipse':
     case 'crop':
