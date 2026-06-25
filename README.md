@@ -49,6 +49,7 @@ src/
 ✅ Tools: Move, Brush, Eraser, Bucket Fill, Eyedropper, Rect/Ellipse Marquee, Crop, Hand, Zoom
 ✅ Brush engine: variable size/hardness/opacity/flow/spacing, soft-edge alpha kernels with smoothstep falloff
 ✅ Selection: rect & ellipse marquees, all paint ops respect selection mask
+✅ Background removal: one-click **offline** cutout (no AI model, no network) + manual refine (magic-wand cut/restore, restore brush, eraser) → transparent PNG
 ✅ Filters: Brightness/Contrast, Hue/Saturation, Levels, Gaussian Blur (separable), Sharpen, Pixelate, Noise, Invert, B&W
 ✅ History: bounded undo/redo with paint-tile compression
 ✅ Photoshop keyboard shortcuts (V/M/L/C/I/B/E/G/T/H/Z, [ ] for size, X swap, D reset, Ctrl+Z/Y, Ctrl+S, etc.)
@@ -60,11 +61,39 @@ src/
 ✅ Autosave to localStorage every 30s
 ✅ Dark theme matching Photoshop's palette
 
+## Removing a background
+
+Photochopped ships a fully **offline** background remover — no AI model, no network calls, no dependencies. It edits the active layer's alpha channel (RGB is preserved), so the cutout renders instantly and exports straight to a transparent PNG.
+
+**Auto-remove → PNG**
+- Click the **Scissors** button in the toolbar for a one-tap cutout, or use **Image → Remove Background**.
+- For control, **right-click the Scissors** (or **Image → Remove Background…**) to open a dialog with **Tolerance** and **Edge feather** sliders.
+- Then **File → Export… → PNG** — the transparency is already there.
+
+**Refine the cutout (select / deselect areas)**
+- **Magic Wand** (`W`): **click** a region to cut it out · **Alt+click** to restore it. Tolerance + Contiguous options sit in the options bar.
+- **Restore brush** (`K`): paint removed pixels back. The **Eraser** (`E`) cuts more away. Both are soft brushes good for hair/edges; resize with `[` / `]`.
+- Everything is undoable (`Ctrl+Z`).
+
+**Typical workflow (keyboard-first)**
+1. **Open** the image — `Ctrl+O` (or drag-and-drop, or `Ctrl+V` to paste).
+2. **Remove the background** — click the **Scissors**, or **Image → Remove Background**. Right-click the Scissors (or **Image → Remove Background…**) for the Tolerance / Edge-feather dialog if the one-tap result needs tuning.
+3. **Refine the edges:**
+   - `W` — Magic Wand: click leftover background to cut it · `Alt`+click to bring a region back.
+   - `K` — Restore brush: paint missed parts of the subject back in.
+   - `E` — Eraser: scrub away stray background by hand.
+   - `[` / `]` — shrink / grow the current brush · `Ctrl+Z` / `Ctrl+Shift+Z` — undo / redo.
+4. **Export** — `Ctrl+E`, choose **PNG**. The transparency is baked in.
+
+The **Magic Wand**, **Restore brush**, and **Eraser** live in their own group under the Scissors button in the toolbar, so the whole job is in one place. Auto-removal works best on a subject over a relatively even background (product/studio shots).
+
+How it works: it samples the image border (per-channel median) to model the background color, flood-fills inward removing only background *connected to the edge* (so an interior region that merely shares the background color is kept), then feathers the matte for a clean anti-aliased edge.
+
 ## Phase 2 (architecture-ready, not yet implemented)
 
 Built so each of these is a drop-in:
 - WebGL2 compositor + filter shaders (replace `Compositor.compositeLayer` body)
-- AI features: background removal (ONNX Runtime Web + U2Net), object selection (SAM2 wasm), inpainting
+- AI features: object selection (SAM2 wasm), inpainting, and a higher-quality ONNX/U²-Net background-removal engine for busy photographic backgrounds (a local-algorithm remover already ships — see [Removing a background](#removing-a-background))
 - Adjustment & text & shape layer rendering (types already in `core/types.ts`)
 - Liquify, healing, clone stamp, dodge/burn (extend `tools/`)
 - Lasso / polygon-lasso / magic-wand (extend `tools/`, marching-ants overlay already exists)
@@ -101,6 +130,8 @@ npm run typecheck    # tsc --noEmit
 | Move / Marquee / Lasso / Wand | `V` / `M` / `L` / `W` |
 | Crop / Eyedropper | `C` / `I` |
 | Brush / Eraser / Fill | `B` / `E` / `G` |
+| Restore brush (paint background back) | `K` |
+| Magic Wand: cut region / restore region | `Click` / `Alt+Click` |
 | Text / Shape | `T` / `R` |
 | Hand / Zoom | `H` / `Z` |
 | Brush size − / + | `[` / `]` |
